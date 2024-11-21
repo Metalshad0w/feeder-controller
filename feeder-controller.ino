@@ -1,3 +1,4 @@
+//ESO8266 CODE
 #include <NTPClient.h>
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
@@ -11,6 +12,7 @@ WiFiServer server(80);
 String header;
 
 int feedTime;
+int feedQuantity;
 unsigned long currentTime = millis();
 unsigned long previousTime = 0;
 const long timeoutTime = 2000;
@@ -23,6 +25,7 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 
 void setup(){
   feedTime = 3;
+  feedQuantity = 100;
   lastMinute = 0;
   Serial.begin(115200);
   delay(5000);
@@ -72,8 +75,13 @@ updateTime();   // Escute os clientes conectados
             if (header.indexOf("GET /feedTime/") >= 0) {
               //Envie um comando para Mega2560 via serial.
               feedTime = header.substring(14, 16).toInt();
-              Serial.println("TIME_" + String(feedTime));
+              Serial.println("TIME=" + String(feedTime));
             } 
+            if (header.indexOf("GET /feedQuantity/") >= 0) {
+              //Envie um comando para Mega2560 via serial.
+              feedQuantity = header.substring(18, 21).toInt();
+              Serial.println("FEED_QUANTITY=" + String(feedQuantity));
+            }
             if (header.indexOf("GET /feed/now") >= 0) {
               //Envie um comando para Mega2560 via serial.
               Serial.println("FEED_NOW=" + timeClient.getFormattedTime());
@@ -94,7 +102,9 @@ updateTime();   // Escute os clientes conectados
  
               // Mostre o estado atual do pino 13, aqui representado pela variavel de estado outputState. 
               client.println("<p>Tempo entre as refeicoes: " + String(feedTime) + " horas</p>");
-              client.println("<p><input type=\"text\" name=\"textBox\" id=\"textBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/feedTime/'+document.getElementById('textBox').value\"><button class=\"button\">Definir Hora</button></a></p>");
+              client.println("<p>Tempo despejando ração: " + String(feedQuantity) + " milisegundos</p>");
+              client.println("<p><input type=\"text\" name=\"textTimeBox\" id=\"textTimeBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/feedTime/'+document.getElementById('textTimeBox').value\"><button class=\"button\">Definir Hora</button></a></p>");
+              client.println("<p><input type=\"text\" name=\"textQuantityBox\" id=\"textQuantityBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/feedQuantity/'+document.getElementById('textQuantityBox').value\"><button class=\"button\">Definir quantidade de ração (ms)</button></a></p>");
               client.println("<p><a href=\"/feed/now\"><button class=\"button\">Alimentar Agora</button></a></p>");
               client.println("</body></html>");
               // A resposta HTTP termina com outra linha em branco.
