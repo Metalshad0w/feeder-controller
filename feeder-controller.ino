@@ -24,7 +24,7 @@ WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 
 void setup(){
-  feedTime = 3;
+  feedTime = 2;
   feedQuantity = 100;
   lastMinute = 0;
   Serial.begin(115200);
@@ -102,9 +102,9 @@ updateTime();   // Escute os clientes conectados
  
               // Mostre o estado atual do pino 13, aqui representado pela variavel de estado outputState. 
               client.println("<p>Tempo entre as refeicoes: " + String(feedTime) + " horas</p>");
-              client.println("<p>Tempo despejando ração: " + String(feedQuantity) + " milisegundos</p>");
+              client.println("<p>Tempo despejando racao: " + String(feedQuantity) + " milisegundos</p>");
               client.println("<p><input type=\"text\" name=\"textTimeBox\" id=\"textTimeBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/feedTime/'+document.getElementById('textTimeBox').value\"><button class=\"button\">Definir Hora</button></a></p>");
-              client.println("<p><input type=\"text\" name=\"textQuantityBox\" id=\"textQuantityBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/feedQuantity/'+document.getElementById('textQuantityBox').value\"><button class=\"button\">Definir quantidade de ração (ms)</button></a></p>");
+              client.println("<p><input type=\"text\" name=\"textQuantityBox\" id=\"textQuantityBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/feedQuantity/'+document.getElementById('textQuantityBox').value\"><button class=\"button\">Definir quantidade de racao (ms)</button></a></p>");
               client.println("<p><a href=\"/feed/now\"><button class=\"button\">Alimentar Agora</button></a></p>");
               client.println("</body></html>");
               // A resposta HTTP termina com outra linha em branco.
