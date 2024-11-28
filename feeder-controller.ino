@@ -25,7 +25,7 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 
 void setup(){
   feedTime = 2;
-  feedQuantity = 100;
+  feedQuantity = 900;
   lastMinute = 0;
   Serial.begin(115200);
   delay(5000);
@@ -71,26 +71,21 @@ updateTime();   // Escute os clientes conectados
             client.println("Connection: close");
             client.println();
  
-            // Procure o trecho "GET /13/on" dentro da solicitação do recebida do cliente.
             if (header.indexOf("GET /feedTime/") >= 0) {
-              //Envie um comando para Mega2560 via serial.
               feedTime = header.substring(14, 16).toInt();
               Serial.println("TIME=" + String(feedTime));
             } 
             if (header.indexOf("GET /feedQuantity/") >= 0) {
-              //Envie um comando para Mega2560 via serial.
-              feedQuantity = header.substring(18, 21).toInt();
+              feedQuantity = header.substring(18, 22).toInt();
               Serial.println("FEED_QUANTITY=" + String(feedQuantity));
             }
             if (header.indexOf("GET /feed/now") >= 0) {
-              //Envie um comando para Mega2560 via serial.
               Serial.println("FEED_NOW=" + timeClient.getFormattedTime());
             }
-              // Pagina HTML
               client.println("<!DOCTYPE html><html>");
+              client.println("<meta http-equiv=\"Content-Type\" content=\"text/html;charset=utf-8\">");
               client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
               client.println("<link rel=\"icon\" href=\"data:,\">");
-              // CSS para estilizar a pagina
               client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
               client.println("h1,p {font-weight: bold;color: #126e54; font-size: 32px;}");
               client.println("p {font-size: 16px;}");
@@ -100,14 +95,13 @@ updateTime();   // Escute os clientes conectados
  
               client.println("<body><h1>Alimentador Mimi WiFi</h1>");
  
-              // Mostre o estado atual do pino 13, aqui representado pela variavel de estado outputState. 
-              client.println("<p>Tempo entre as refeicoes: " + String(feedTime) + " horas</p>");
-              client.println("<p>Tempo despejando racao: " + String(feedQuantity) + " milisegundos</p>");
+              client.println("<p>Horário de funcionamento: 07:00 até as 20:00</p>");
+              client.println("<p>Tempo entre as refeições: " + String(feedTime) + " horas</p>");
+              client.println("<p>Tempo despejando a ração: " + String(feedQuantity) + " milisegundos</p>");
               client.println("<p><a href=\"/feed/now\"><button class=\"button\">Alimentar Agora</button></a></p>");
-              client.println("<p><input type=\"text\" name=\"textTimeBox\" id=\"textTimeBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/feedTime/'+document.getElementById('textTimeBox').value\"><button class=\"button\">Definir Hora</button></a></p>");
-              client.println("<p><input type=\"text\" name=\"textQuantityBox\" id=\"textQuantityBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/feedQuantity/'+document.getElementById('textQuantityBox').value\"><button class=\"button\">Definir quantidade de racao (ms)</button></a></p>");
+              client.println("<p><input type=\"text\" style=\"width: 40px\" name=\"textQuantityBox\" id=\"textQuantityBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/feedQuantity/'+document.getElementById('textQuantityBox').value\"><button class=\"button\">Definir quantidade de ração (ms)</button></a></p>");
+              client.println("<p><input type=\"text\" style=\"width: 40px\" name=\"textTimeBox\" id=\"textTimeBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/feedTime/'+document.getElementById('textTimeBox').value\"><button class=\"button\">Definir tempo entre as refeições (H)</button></a></p>");
               client.println("</body></html>");
-              // A resposta HTTP termina com outra linha em branco.
               client.println();
               break;
             } else { // Se você recebeu uma nova linha, limpe currentLine
