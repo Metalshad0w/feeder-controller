@@ -1,4 +1,4 @@
-//ESO8266 CODE
+//ESP8266 CODE
 #include <NTPClient.h>
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
@@ -13,6 +13,7 @@ String header;
 
 int feedTime;
 int feedQuantity;
+int feedOpenning;
 unsigned long currentTime = millis();
 unsigned long previousTime = 0;
 const long timeoutTime = 2000;
@@ -24,9 +25,10 @@ WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 
 void setup(){
-  feedTime = 2;
-  feedQuantity = 900;
+  feedTime = 4;
+  feedQuantity = 500;
   lastMinute = 0;
+  feedOpenning = 0;
   Serial.begin(115200);
   delay(5000);
   WiFi.begin(ssid, password);
@@ -79,6 +81,10 @@ updateTime();   // Escute os clientes conectados
               feedQuantity = header.substring(18, 22).toInt();
               Serial.println("FEED_QUANTITY=" + String(feedQuantity));
             }
+            if (header.indexOf("GET /feedOpenning/") >= 0) {
+              feedOpenning = header.substring(18, 22).toInt();
+              Serial.println("FEED_OPENNING=" + String(feedOpenning));
+            }
             if (header.indexOf("GET /feed/now") >= 0) {
               Serial.println("FEED_NOW=" + timeClient.getFormattedTime());
             }
@@ -97,8 +103,11 @@ updateTime();   // Escute os clientes conectados
  
               client.println("<p>Horário de funcionamento: 07:00 até as 20:00</p>");
               client.println("<p>Tempo entre as refeições: " + String(feedTime) + " horas</p>");
+              //client.println("<p>Abertura para despejar a ração: " + String(feedOpenning) + " graus</p>");
               client.println("<p>Tempo despejando a ração: " + String(feedQuantity) + " milisegundos</p>");
+              
               client.println("<p><a href=\"/feed/now\"><button class=\"button\">Alimentar Agora</button></a></p>");
+              //client.println("<p><input type=\"text\" style=\"width: 40px\" name=\"textOpenningBox\" id=\"textOpenningBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/feedOpenning/'+document.getElementById('textOpenningBox').value\"><button class=\"button\">Definir grau de abertura</button></a></p>");
               client.println("<p><input type=\"text\" style=\"width: 40px\" name=\"textQuantityBox\" id=\"textQuantityBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/feedQuantity/'+document.getElementById('textQuantityBox').value\"><button class=\"button\">Definir quantidade de ração (ms)</button></a></p>");
               client.println("<p><input type=\"text\" style=\"width: 40px\" name=\"textTimeBox\" id=\"textTimeBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/feedTime/'+document.getElementById('textTimeBox').value\"><button class=\"button\">Definir tempo entre as refeições (H)</button></a></p>");
               client.println("</body></html>");
