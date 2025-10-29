@@ -6,6 +6,7 @@
     <title>Alimentador Mimi WiFi</title>
     
     <style>
+        /* ... (CSS permanece o mesmo) ... */
         body{font-family:'Arial', sans-serif;margin:0;padding:0;background-color:#f8f9fa;color:#495057;}
         h1{color:#007bff;text-align:center;padding:20px 0 10px;}
         .container{max-width:600px;margin:0 auto;padding:20px;}
@@ -17,7 +18,7 @@
             border-radius:12px;
             box-shadow:0 4px 8px rgba(0,0,0,0.1);
             margin-bottom:20px;
-            padding:0; /* Remove padding padrão para que a imagem ocupe a borda */
+            padding:0; 
         }
         .carrossel{height:280px;overflow:hidden;position:relative;border-radius:12px 12px 0 0;}
         .slide{width:100%;height:100%;background-size:cover;background-repeat:no-repeat;position:absolute;transition:opacity 1s ease-in-out;opacity:0;}
@@ -49,43 +50,36 @@
         p{margin:0;}
         .info-horario{font-size:14px;color:#6c757d;margin-top:5px; padding-top: 10px; border-top: 1px solid #eee; text-align: center;}
         .label-token {font-size: 14px; margin-bottom: 5px; color: #6c757d;}
-        .center-button-wrapper { text-align: center; padding: 10px 0; } /* Novo wrapper para centralizar */
+        .center-button-wrapper { text-align: center; padding: 10px 0; }
         .full-width-input { width: 100%; margin-bottom: 10px; }
         .input-button-group { display: flex; align-items: center; }
 
     </style>
 
     <script>
-        // Obtém o token do campo de input principal.
         function getTokenValue() {
             return document.getElementById('tokenDisplay').value; 
         }
 
-        // Função para Alimentar Agora (com token)
         function feedNow() {
             const token = getTokenValue();
             window.location.href = '/feed/now?token=' + token;
         }
         
-        // CORREÇÃO V7.5: ENVIANDO VALOR COMO QUERY PARAMETER (?value=X&token=Y)
         function submitQtyForm() {
             var value = document.getElementById('qtyInput').value;
             var token = getTokenValue(); 
-            // Rota CORRIGIDA: /feedQuantity?value=<valor>&token=<chave>
             window.location.href = '/feedQuantity?value=' + value + '&token=' + token;
             return false; 
         }
         
-        // CORREÇÃO V7.5: ENVIANDO VALOR COMO QUERY PARAMETER (?value=X&token=Y)
         function submitTimeForm() {
             var value = document.getElementById('timeInput').value;
             var token = getTokenValue(); 
-            // Rota CORRIGIDA: /feedTime?value=<valor>&token=<chave>
             window.location.href = '/feedTime?value=' + value + '&token=' + token;
             return false;
         }
         
-        // Função de Carrossel
         var slideIndex = 0;
         function showSlides() {
           var i;
@@ -103,7 +97,6 @@
           setTimeout(showSlides, 4000); 
         }
         
-        // Inicia o carrossel quando a página carrega
         window.onload = function() {
             showSlides();
         };
@@ -123,7 +116,7 @@
 
         <div class="token-section">
             <p class="label-token">🔑 Chave de Segurança (Token):</p>
-            <input type="text" id="tokenDisplay" placeholder="Digite a Chave Aqui"/> 
+            <input type="text" id="tokenDisplay" value="[LAST_TOKEN_VALUE]" placeholder="Digite a Chave Aqui"/> 
         </div>
     </div>
 

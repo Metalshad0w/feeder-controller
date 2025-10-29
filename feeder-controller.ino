@@ -1,230 +1,323 @@
-// ESP8266 CODE V2.3 - Segurança, Carrossel, e Comunicação Serial Corrigida para Arduino Mega
-
-#include <NTPClient.h>
 #include <ESP8266WiFi.h>
-#include <WiFiUdp.h>
+#include <WiFiClient.h>
+#include <ESP8266WebServer.h>
+#include <LittleFS.h>  
+#include <NTPClient.h> 
+#include <WiFiUdp.h>   
 
-// --- CONFIGURAÇÕES DE SEGURANÇA ---
-#define SECRET_TOKEN "tk-mimi-secreto-ab12cd34ef56" 
-#define MAX_REQ_LINE_SIZE 512 
+// ******************************************************
+// --- CREDENCIAIS DE WiFi ---
+// ******************************************************
+const char* SSID_NAME = "Mojo Dojo Casa House"; 
+const char* PASSWORD = "rockstaRxD0123"; 
+// ******************************************************
 
-// --- CONFIGURAÇÕES DE VALIDAÇÃO DE ENTRADA ---
-#define MIN_FEED_TIME 1
-#define MAX_FEED_TIME 24 
-#define MIN_FEED_QUANTITY 0
-#define MAX_FEED_QUANTITY 5000
+// --- Configurações de Segurança e Lógica ---
+const String SECRET_TOKEN = "COMIDA"; 
+int FEED_INTERVAL_HOURS = 4;        
+int FEED_DURATION_MS = 900;          
 
-// --- CONFIGURAÇÕES DE IMAGEM DO CARROSSEL (Use seus links permanentes do Imgur) ---
-const char* FOTO_URL_1 = "https://i.imgur.com/p4H6LQ0.jpg";
-const char* FOTO_URL_2 = "https://i.imgur.com/d4HXD8e.jpg";
-const char* FOTO_URL_3 = "https://preview.redd.it/28cm0nvgwi681.jpg?width=640&crop=smart&auto=webp&s=daa957209edf778a8037e7a331712166dab71b24";
-// ---------------------------------------------------------------------
+// --- Variáveis de Estado ---
+unsigned long lastFeedTime = 0; 
+int lastMinute = -1;
+// Variáveis globais de alerta/token REMOVIDAS (V7.16)
+ESP8266WebServer server(80);
 
-const char *ssid      = "Mojo Dojo Casa House";
-const char *password = "rockstaRxD0123";
+// NTP Client Setup
 const long utcOffsetInSeconds = -10800;
-
-WiFiServer server(80);
-
-char requestLine[MAX_REQ_LINE_SIZE]; 
-
-int feedTime;
-int feedQuantity;
-unsigned long currentTime = millis();
-unsigned long previousTime = 0;
-const long timeoutTime = 2000;
-int lastMinute;
-int lastHour;
-
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
+NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds); 
 
-void sendForbidden(WiFiClient client) {
-  client.println("HTTP/1.1 403 Forbidden");
-  client.println("Content-type:text/html");
-  client.println("Connection: close");
-  client.println();
-  client.println("<!DOCTYPE html><html><body><h1>403 Acesso Negado</h1><p>Token Invalido.</p></body></html>");
-}
+// --- Protótipos de Funções ---
+void send_time_interval(int value);
+void send_feed_duration(int value);
+void send_feed_now();
 
-void setup(){
-  feedTime = 4; 
-  feedQuantity = 900;
-  lastMinute = 0;
-  
-  Serial.begin(115200);
-  delay(5000);
-  WiFi.begin(ssid, password);
+void handleRoot();
+void handleFeedNow();
+void handleFeedTime();
+void handleFeedQuantity();
+void handleNotFound();
+void serveIndexHtml(String token, String alert, int fTime, int fQty);
+void updateTime();
+void send_feedback_and_refresh(String alert_message, String token_value, int fTime, int fQty); // NOVO PROTÓTIPO
 
-  while ( WiFi.status() != WL_CONNECTED ) {
-    delay ( 500 );
-  }
-
-  timeClient.begin();
-  server.begin();
-  timeClient.update();
-}
+// ----------------------------------------------------------------------
+// FUNÇÕES DE TEMPO E COMUNICAÇÃO SERIAL
+// ----------------------------------------------------------------------
 
 void updateTime(){
-  int minute = timeClient.getFormattedTime().substring(3,5).toInt();
-  if(abs(minute - lastMinute) > 5){
-    timeClient.update();
-    // NÃO ENVIA NADA AQUI (Apenas no loop principal de comando)
-    lastMinute = minute;
-  }
+    int minute = timeClient.getFormattedTime().substring(3,5).toInt();
+    if(minute != lastMinute){
+        timeClient.update();
+        Serial.println(timeClient.getFormattedTime());
+        lastMinute = minute;
+    }
+}
+void send_time_interval(int value) {
+    String command = "TIME=" + String(value);
+    Serial.println(command);
+}
+void send_feed_duration(int value) {
+    String command = "FEED_QUANTITY=" + String(value);
+    Serial.println(command);
+}
+void send_feed_now() {
+    timeClient.update(); 
+    String command = "FEED_NOW=" + timeClient.getFormattedTime();
+    Serial.println(command);
 }
 
+// ----------------------------------------------------------------------
+// FUNÇÃO PRINCIPAL: SETUP
+// ----------------------------------------------------------------------
+
+void setup() {
+    Serial.begin(115200); 
+    
+    if (!LittleFS.begin()) {
+        // Falha ao montar o LittleFS.
+    }
+    
+    // --- Conexão WiFi ---
+    WiFi.begin(SSID_NAME, PASSWORD);
+
+    int maxTries = 30;
+    while (WiFi.status() != WL_CONNECTED && maxTries > 0) {
+        delay(500);
+        yield(); 
+        maxTries--;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+        timeClient.begin();
+        timeClient.update();
+        updateTime(); 
+    }
+    
+    // --- Configuração das Rotas do Servidor ---
+    server.on("/", handleRoot);
+    server.on("/feed/now", handleFeedNow);
+    server.on("/feedTime", handleFeedTime);        
+    server.on("/feedQuantity", handleFeedQuantity); 
+    
+    server.on("/favicon.ico", []() {
+        server.send(204); 
+    });
+
+    server.onNotFound(handleNotFound);
+
+    server.begin();
+    
+    lastFeedTime = millis();
+    
+    send_time_interval(FEED_INTERVAL_HOURS);
+    send_feed_duration(FEED_DURATION_MS);
+}
+
+// ----------------------------------------------------------------------
+// FUNÇÃO PRINCIPAL: LOOP
+// ----------------------------------------------------------------------
+
 void loop() {
-  WiFiClient client = server.available();
-  updateTime();
-  
-  if (client) {
-    updateTime();
+    server.handleClient();
     
-    // --- LÓGICA DE SEGURANÇA CONTRA DOS POR MEMÓRIA ---
-    String requestString = "";
-    int charCount = 0;
+    if (WiFi.status() == WL_CONNECTED) {
+        updateTime();
+    }
     
-    memset(requestLine, 0, MAX_REQ_LINE_SIZE); 
+    if (WiFi.status() != WL_CONNECTED) {
+        WiFi.reconnect();
+    }
     
-    while (client.connected() && (millis() - previousTime <= timeoutTime)) {
-      if (client.available()) {
-        char c = client.read();
+    if (millis() - lastFeedTime >= (unsigned long)FEED_INTERVAL_HOURS * 3600000UL) {
         
-        if (charCount < MAX_REQ_LINE_SIZE - 1) { 
-          requestLine[charCount++] = c;
+        // 1. Obtém a hora atual (somente a hora em formato 24h)
+        int currentHour = timeClient.getHours();
+        
+        // 2. Verifica se a hora está no intervalo [7, 20)
+        // O intervalo é de 07:00 (inclusivo) até 19:59:59 (exclusivo de 20:00)
+        if (currentHour >= 7 && currentHour < 20) {
+            
+            // 3. Dispara a alimentação (Comentado pq está sendo gerenciada pelo MEGA)
+            //send_feed_now(); 
+            
+            // 4. Reinicia a contagem
+            lastFeedTime = millis();
+        }
+        // Se o tempo passou, mas está fora do horário (20h às 6h), o 'lastFeedTime' 
+        // NÃO é atualizado. O sistema espera até que o 'currentHour' seja 7h novamente
+        // para disparar a alimentação e reiniciar o ciclo.
+    }
+}
+
+// ----------------------------------------------------------------------
+// FUNÇÕES DE SERVIDOR E ROTEAMENTO
+// ----------------------------------------------------------------------
+
+String getNextFeedTimeDisplay(unsigned long lastFeed, int intervalHours) {
+    // ... (Mantém a lógica de cálculo de tempo) ...
+    unsigned long nextFeedMillis = lastFeed + (unsigned long)intervalHours * 3600000UL;
+    unsigned long diff = nextFeedMillis - millis();
+
+    if (diff > 0) {
+        long seconds = diff / 1000;
+        long minutes = seconds / 60;
+        long hours = minutes / 60;
+        
+        minutes %= 60; 
+
+        String result = "";
+        
+        if (hours > 0) {
+            result += String(hours) + "h ";
         }
         
-        if (c == '\n') {
-          requestLine[charCount] = '\0'; 
-          requestString = String(requestLine);
-          break;
-        } else if (c == '\r') {
-          // Ignora CR
-        }
-      }
-      if (previousTime == 0) previousTime = millis(); 
+        result += String(minutes) + "m";
+        
+        return "Em " + result;
+    } else {
+        return "Aguarde, calculando...";
+    }
+}
+
+// NOVO: Função para exibir a mensagem temporariamente e redirecionar via Meta-Refresh
+void send_feedback_and_refresh(String alert_message, String token_value, int fTime, int fQty) {
+    String html = "<!DOCTYPE html><html><head>";
+    // ALTERADO V7.17: O Meta-Refresh agora recarrega para a rota raiz após 5 segundos
+    html += "<meta http-equiv=\"refresh\" content=\"5; url=/\">"; 
+    html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+    html += "<title>Processando...</title>";
+    html += "<style>";
+    html += "body{font-family:'Arial', sans-serif;margin:0;padding:20px;background-color:#f8f9fa;color:#495057; text-align: center;}";
+    html += ".alert-success, .alert-warning{padding:12px;border-radius:6px;margin-bottom:15px;font-weight:bold; display: inline-block;}";
+    html += ".alert-success{background-color:#d4edda;color:#155724;border:1px solid #c3e6cb;}";
+    html += ".alert-warning{background-color:#f8d7da;color:#721c24;border:1px solid #f5c6cb;}";
+    html += "</style></head><body>";
+    
+    // Alerta HTML
+    String alertClass = (alert_message.startsWith("SUCESSO")) ? "alert-success" : "alert-warning";
+    html += "<div class=\"" + alertClass + "\"><p>";
+    html += alert_message; 
+    html += "</p></div>";
+    
+    html += "<p>Redirecionando em 5 segundos...</p>";
+    html += "</body></html>";
+
+    server.send(200, "text/html", html);
+}
+
+void serveIndexHtml(String token, String alert, int fTime, int fQty) {
+    File file = LittleFS.open("/index.html", "r"); 
+    if (!file) {
+        server.send(500, "text/plain", "ERRO: index.html nao encontrado. (Alimentador Mimi WiFi)");
+        return;
     }
 
-    // --- SEGURANÇA: CONTROLE DE ACESSO ---
-    bool isAuthenticated = requestString.indexOf(SECRET_TOKEN) != -1;
+    String htmlContent = file.readString();
+    file.close(); 
     
-    if ( (requestString.indexOf("/feedTime/") >= 0 || 
-          requestString.indexOf("/feedQuantity/") >= 0 || 
-          requestString.indexOf("/feed/now") >= 0) && !isAuthenticated) {
-      
-      Serial.println("ALERTA: Tentativa de acesso crítico sem token.");
-      sendForbidden(client);
-      client.stop();
-      return;
+    // --- Lógica de Alerta (Não usada mais, mas mantida por consistência) ---
+    String alertString = "";
+    // O Alerta aqui sempre será vazio, pois o feedback é feito pela página intermediária
+    
+    // --- Substituições Dinâmicas ---
+    String nextTimeDisplay = getNextFeedTimeDisplay(lastFeedTime, fTime);
+
+    // Token é SEMPRE vazio para a página principal (não mantemos mais o valor incorreto)
+    htmlContent.replace("[LAST_TOKEN_VALUE]", ""); 
+    
+    htmlContent.replace("[FEED_TIME]", String(fTime));
+    htmlContent.replace("[FEED_QUANTITY]", String(fQty));
+    htmlContent.replace("[NEXT_FEED_TIME]", nextTimeDisplay); 
+    
+    // Substitui o placeholder de alerta por uma string vazia
+    htmlContent.replace("", alertString);
+
+    // --- Envio do Conteúdo (Prevenção de Cache) ---
+    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    server.sendHeader("Pragma", "no-cache");
+    server.sendHeader("Expires", "-1");
+    
+    server.send(200, "text/html", htmlContent); 
+}
+
+
+// ROTA: / (Página Inicial) - SIMPLES
+void handleRoot() {
+    // Alerta e Token vazios, pois a página intermediária lida com o feedback
+    serveIndexHtml("", "", FEED_INTERVAL_HOURS, FEED_DURATION_MS);
+}
+
+// ROTA: /feed/now 
+void handleFeedNow() {
+    String token = server.arg("token");
+    String alert = "";
+    
+    String upperToken = token;
+    upperToken.toUpperCase();
+
+    if (upperToken == SECRET_TOKEN) {
+        send_feed_now(); 
+        lastFeedTime = millis();
+        alert = "SUCESSO: Alimento dispensado manualmente! Comando enviado: FEED_NOW"; 
+    } else {
+        alert = "ERRO: Token invalido ou nao fornecido.";
     }
 
-    // --- INÍCIO DA RESPOSTA HTTP ---
-    client.println("HTTP/1.1 200 OK");
-    client.println("Content-type:text/html");
-    client.println("Connection: close");
-    client.println();
+    // Feedback imediato e recarga via Meta-Refresh
+    send_feedback_and_refresh(alert, token, FEED_INTERVAL_HOURS, FEED_DURATION_MS);
+}
 
-    // 1. Lógica de Validação e Execução
-    if (requestString.indexOf("/feedTime/") >= 0) {
-        int valStartIndex = requestString.indexOf("/feedTime/") + 10; 
-        String valString = requestString.substring(valStartIndex, valStartIndex + 2); 
-        int tempFeedTime = valString.toInt();
-
-        // VALIDAÇÃO DE ENTRADA (MANTIDA)
-        if (tempFeedTime >= MIN_FEED_TIME && tempFeedTime <= MAX_FEED_TIME) {
-            feedTime = tempFeedTime;
-            // CORREÇÃO: ENVIO SERIAL NO FORMATO ESPERADO PELO MEGA
-            Serial.println("TIME=" + String(feedTime)); 
-        } else {
-            Serial.println("ALERTA: Valor de feedTime REJEITADO: " + String(tempFeedTime));
-        }
-    }
+// ROTA: /feedTime 
+void handleFeedTime() {
+    String pathValue = server.arg("value");
+    String token = server.arg("token");
+    String alert = "";
+    int newTime = pathValue.toInt();
     
-    if (requestString.indexOf("/feedQuantity/") >= 0) {
-        int valStartIndex = requestString.indexOf("/feedQuantity/") + 14; 
-        String valString = requestString.substring(valStartIndex, valStartIndex + 4);
-        int tempFeedQuantity = valString.toInt();
+    String upperToken = token;
+    upperToken.toUpperCase();
 
-        // VALIDAÇÃO DE ENTRADA (MANTIDA)
-        if (tempFeedQuantity >= MIN_FEED_QUANTITY && tempFeedQuantity <= MAX_FEED_QUANTITY) {
-            feedQuantity = tempFeedQuantity;
-            // CORREÇÃO: ENVIO SERIAL NO FORMATO ESPERADO PELO MEGA
-            Serial.println("FEED_QUANTITY=" + String(feedQuantity));
-        } else {
-            Serial.println("ALERTA: Valor de feedQuantity REJEITADO: " + String(tempFeedQuantity));
-        }
-    }
-    
-    if (requestString.indexOf("/feed/now") >= 0) {
-      // CORREÇÃO: ENVIO SERIAL NO FORMATO ESPERADO PELO MEGA
-      Serial.println("FEED_NOW=" + timeClient.getFormattedTime());
+    if (upperToken != SECRET_TOKEN) { 
+        alert = "ERRO: Token invalido ou nao fornecido.";
+    } else if (newTime >= 1 && newTime <= 24) {
+        FEED_INTERVAL_HOURS = newTime;
+        send_time_interval(newTime); 
+        alert = "SUCESSO: Intervalo de alimentacao definido para " + String(newTime) + " horas.";
+    } else {
+        alert = "ERRO: Valor de intervalo deve ser entre 1 e 24 horas.";
     }
 
-    // 2. Conteúdo da Página HTML (Carrossel e Botões)
-    client.println("<!DOCTYPE html><html>");
-    client.println("<meta http-equiv=\"Content-Type\" content=\"text/html;charset=utf-8\">");
-    client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-    client.println("<link rel=\"icon\" href=\"data:,\">");
-    client.println("<style>");
-    
-    // ESTILOS GERAIS
-    client.println("html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
-    client.println("h1,p {font-weight: bold;color: #126e54; font-size: 32px;}");
-    client.println("p {font-size: 16px;}");
-    client.println(".button { background-color: #1BAE85; border: none; color: white; padding: 7px 14px;");
-    client.println("text-decoration: none; font-size: 12px; margin: 2px; cursor: pointer;}");
-    
-    // --- ESTILOS DO CARROSSEL ---
-    client.println(".carousel-container { width: 300px; height: 200px; margin: 20px auto; overflow: hidden; border: 2px solid #1BAE85; }");
-    client.println(".slide-track { display: flex; width: 300%; animation: slide-animation 10s infinite; }");
-    client.println(".slide { width: 33.3333%; height: 200px; flex-shrink: 0; background-size: cover; background-position: center; }");
+    // Feedback imediato e recarga via Meta-Refresh
+    send_feedback_and_refresh(alert, token, FEED_INTERVAL_HOURS, FEED_DURATION_MS);
+}
 
-    client.println("@keyframes slide-animation {");
-    client.println("  0% { transform: translateX(0); }");
-    client.println("  33% { transform: translateX(-100%); }");
-    client.println("  66% { transform: translateX(-200%); }");
-    client.println("  100% { transform: translateX(0); }");
-    client.println("}");
-    // FIM DOS ESTILOS DO CARROSSEL
+// ROTA: /feedQuantity 
+void handleFeedQuantity() {
+    String pathValue = server.arg("value");
+    String token = server.arg("token");
+    String alert = "";
+    int newQty = pathValue.toInt();
+    
+    String upperToken = token;
+    upperToken.toUpperCase();
 
-    client.println("</style></head>");
+    if (upperToken != SECRET_TOKEN) { 
+        alert = "ERRO: Token invalido ou nao fornecido.";
+    } else if (newQty >= 100 && newQty <= 5000) {
+        FEED_DURATION_MS = newQty;
+        send_feed_duration(newQty); 
+        alert = "SUCESSO: Duracao da alimentacao definida para " + String(newQty) + " ms.";
+    } else {
+        alert = "ERRO: Valor de duracao deve ser entre 100 e 5000 ms.";
+    }
+    
+    // Feedback imediato e recarga via Meta-Refresh
+    send_feedback_and_refresh(alert, token, FEED_INTERVAL_HOURS, FEED_DURATION_MS);
+}
 
-    client.println("<body><h1>Alimentador Mimi WiFi</h1>");
-    
-    // --- INSERÇÃO DO CARROSSEL COM LINKS EXTERNOS ---
-    client.println("<div class=\"carousel-container\">");
-    client.println("<div class=\"slide-track\">");
-    
-    client.print("<div class=\"slide\" style=\"background-image: url('");
-    client.print(FOTO_URL_1);
-    client.println("');\"></div>");
-
-    client.print("<div class=\"slide\" style=\"background-image: url('");
-    client.print(FOTO_URL_2);
-    client.println("');\"></div>");
-    
-    client.print("<div class=\"slide\" style=\"background-image: url('");
-    client.print(FOTO_URL_3);
-    client.println("');\"></div>");
-    
-    client.println("</div></div>");
-    // --- FIM DO CARROSSEL ---
-
-    client.println("<p>Horário de funcionamento: 07:00 até as 20:00</p>");
-    client.println("<p>Tempo entre as refeições: " + String(feedTime) + " horas</p>");
-    client.println("<p>Tempo despejando a ração: " + String(feedQuantity) + " milisegundos</p>");
-    
-    // LINKS DE COMANDO COM O TOKEN DE SEGURANÇA
-    client.println("<p><a href=\"/" SECRET_TOKEN "/feed/now\"><button class=\"button\">Alimentar Agora</button></a></p>");
-    client.println("<p><input type=\"text\" style=\"width: 40px\" name=\"textQuantityBox\" id=\"textQuantityBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/" SECRET_TOKEN "/feedQuantity/'+document.getElementById('textQuantityBox').value\"><button class=\"button\">Definir quantidade de ração (ms)</button></a></p>");
-    client.println("<p><input type=\"text\" style=\"width: 40px\" name=\"textTimeBox\" id=\"textTimeBox\" class=\"button\" value=\"\"/><a href=\"\" onclick=\"this.href='/" SECRET_TOKEN "/feedTime/'+document.getElementById('textTimeBox').value\"><button class=\"button\">Definir tempo entre as refeições (H)</button></a></p>");
-    
-    client.println("</body></html>");
-    client.println();
-    
-    memset(requestLine, 0, MAX_REQ_LINE_SIZE);
-    
-    client.stop();
-  }
+// ROTA: Não Encontrada
+void handleNotFound() {
+    server.send(404, "text/plain", "404: Nao Encontrado.");
 }
