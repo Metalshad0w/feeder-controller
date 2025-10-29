@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+    <title>Alimentador Mimi WiFi</title>
+    
+    <style>
+        body{font-family:'Arial', sans-serif;margin:0;padding:0;background-color:#f8f9fa;color:#495057;}
+        h1{color:#007bff;text-align:center;padding:20px 0 10px;}
+        .container{max-width:600px;margin:0 auto;padding:20px;}
+        .card{background:#ffffff;border-radius:12px;box-shadow:0 4px 8px rgba(0,0,0,0.1);padding:20px;margin-bottom:20px;}
+        
+        /* Estilo do Carrossel/Container Principal */
+        .main-card {
+            background:#ffffff;
+            border-radius:12px;
+            box-shadow:0 4px 8px rgba(0,0,0,0.1);
+            margin-bottom:20px;
+            padding:0; /* Remove padding padrão para que a imagem ocupe a borda */
+        }
+        .carrossel{height:280px;overflow:hidden;position:relative;border-radius:12px 12px 0 0;}
+        .slide{width:100%;height:100%;background-size:cover;background-repeat:no-repeat;position:absolute;transition:opacity 1s ease-in-out;opacity:0;}
+        .slide.active{opacity:1;}
+        
+        /* Estilo da Seção de Token */
+        .token-section {
+            padding: 15px 20px;
+            text-align: center;
+        }
+        .token-section input[type="text"] {
+            width: 80%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            text-align: center;
+            margin-top: 5px;
+        }
+        /* Fim Estilo do Carrossel */
+
+        .alert-success, .alert-warning{padding:12px;border-radius:6px;margin-bottom:15px;font-weight:bold;}
+        .alert-success{background-color:#d4edda;color:#155724;border:1px solid #c3e6cb;}
+        .alert-warning{background-color:#f8d7da;color:#721c24;border:1px solid #f5c6cb;}
+        .action-group{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding:10px 0;border-bottom:1px solid #eee;}
+        .action-group:last-child{border-bottom:none;}
+        .button{background:#007bff;border:none;color:white;padding:10px 18px;font-size:15px;border-radius:6px;cursor:pointer;transition:background-color 0.3s;}
+        .button:hover{background-color:#0056b3;}
+        input[type="text"]{width:60px;padding:10px;border:1px solid #ccc;border-radius:6px;text-align:center;margin-right:10px;}
+        p{margin:0;}
+        .info-horario{font-size:14px;color:#6c757d;margin-top:5px; padding-top: 10px; border-top: 1px solid #eee; text-align: center;}
+        .label-token {font-size: 14px; margin-bottom: 5px; color: #6c757d;}
+        .center-button-wrapper { text-align: center; padding: 10px 0; } /* Novo wrapper para centralizar */
+        .full-width-input { width: 100%; margin-bottom: 10px; }
+        .input-button-group { display: flex; align-items: center; }
+
+    </style>
+
+    <script>
+        // Obtém o token do campo de input principal.
+        function getTokenValue() {
+            return document.getElementById('tokenDisplay').value; 
+        }
+
+        // Função para Alimentar Agora (com token)
+        function feedNow() {
+            const token = getTokenValue();
+            window.location.href = '/feed/now?token=' + token;
+        }
+        
+        // CORREÇÃO V7.5: ENVIANDO VALOR COMO QUERY PARAMETER (?value=X&token=Y)
+        function submitQtyForm() {
+            var value = document.getElementById('qtyInput').value;
+            var token = getTokenValue(); 
+            // Rota CORRIGIDA: /feedQuantity?value=<valor>&token=<chave>
+            window.location.href = '/feedQuantity?value=' + value + '&token=' + token;
+            return false; 
+        }
+        
+        // CORREÇÃO V7.5: ENVIANDO VALOR COMO QUERY PARAMETER (?value=X&token=Y)
+        function submitTimeForm() {
+            var value = document.getElementById('timeInput').value;
+            var token = getTokenValue(); 
+            // Rota CORRIGIDA: /feedTime?value=<valor>&token=<chave>
+            window.location.href = '/feedTime?value=' + value + '&token=' + token;
+            return false;
+        }
+        
+        // Função de Carrossel
+        var slideIndex = 0;
+        function showSlides() {
+          var i;
+          var slides = document.getElementsByClassName("slide");
+          for (i = 0; i < slides.length; i++) {
+            slides[i].style.opacity = "0";
+            slides[i].classList.remove("active");
+          }
+          slideIndex++;
+          if (slideIndex > slides.length) {slideIndex = 1}
+          
+          slides[slideIndex-1].style.opacity = "1";
+          slides[slideIndex-1].classList.add("active");
+          
+          setTimeout(showSlides, 4000); 
+        }
+        
+        // Inicia o carrossel quando a página carrega
+        window.onload = function() {
+            showSlides();
+        };
+
+    </script>
+</head>
+<body>
+<div class="container">
+    <h1>Alimentador Mimi WiFi</h1>
+    
+    <div class="main-card">
+        <div class="carrossel">
+            <div class="slide active" style="background-image: url('https://i.imgur.com/p4H6LQ0.jpg'); background-position: center;"></div>
+            <div class="slide" style="background-image: url('https://i.imgur.com/d4HXD8e.jpg'); background-position: center top 20%;"></div>
+            <div class="slide" style="background-image: url('https://preview.redd.it/28cm0nvgwi681.jpg?width=640&crop=smart&auto=webp&s=daa957209edf778a8037e7a331712166dab71b24'); background-position: center top 5%;"></div>
+        </div>
+
+        <div class="token-section">
+            <p class="label-token">🔑 Chave de Segurança (Token):</p>
+            <input type="text" id="tokenDisplay" placeholder="Digite a Chave Aqui"/> 
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📊 Status Atual</h2>
+        <div class="action-group">
+            <p>Intervalo entre Refeições:</p>
+            <p><strong>[FEED_TIME] horas</strong></p>
+        </div>
+        <div class="action-group">
+            <p>Duração da Alimentação:</p>
+            <p><strong>[FEED_QUANTITY] ms</strong></p>
+        </div>
+        <div class="action-group">
+            <p>Próxima Refeição:</p>
+            <p><strong>[NEXT_FEED_TIME]</strong></p>
+        </div>
+        <div class="action-group"> 
+            <p>Horário de funcionamento:</p>
+            <p><strong>07:00 até as 20:00</strong></p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>⚙️ Comandos Rápidos</h2>
+        
+        <div class="center-button-wrapper">
+            <button class="button" onclick="feedNow()">Alimentar Agora</button>
+        </div>
+        
+        <div class="action-group">
+            <p>Definir Duração (ms)</p>
+            <form onsubmit="return submitQtyForm();" style="display: flex; align-items: center; justify-content: flex-end;">
+                <input type="text" id="qtyInput" name="value" placeholder="100-5000" />
+                <button class="button" type="submit">Definir</button>
+            </form>
+        </div>
+        
+        <div class="action-group">
+            <p>Definir Intervalo (H)</p>
+            <form onsubmit="return submitTimeForm();" style="display: flex; align-items: center; justify-content: flex-end;">
+                <input type="text" id="timeInput" name="value" placeholder="1-24" />
+                <button class="button" type="submit">Definir</button>
+            </form>
+        </div>
+    </div>
+</div>
+</body>
+</html>
