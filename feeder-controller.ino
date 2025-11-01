@@ -13,17 +13,23 @@ const char* PASSWORD = "rockstaRxD0123";
 // ******************************************************
 
 // --- Configurações de Segurança e Lógica ---
-const String SECRET_TOKEN = "COMIDA"; 
+const String SECRET_TOKEN = "COMIDA"; // Token em maiúsculas
 int FEED_INTERVAL_HOURS = 4;        
 int FEED_DURATION_MS = 900;          
+
+// --- CLEAN V8.0: Constantes de Tempo (Sem "Números Mágicos") ---
+const int START_HOUR = 7; // 7:00 AM
+const int END_HOUR = 20;  // 20:00 PM (horário de parada, exclusivo)
+const unsigned long ONE_SECOND_MS = 1000UL;
+const unsigned long ONE_MINUTE_MS = 60 * ONE_SECOND_MS;
+const unsigned long ONE_HOUR_MS = 60 * ONE_MINUTE_MS; // = 3600000UL
 
 // --- Variáveis de Estado ---
 unsigned long lastFeedTime = 0; 
 int lastMinute = -1;
-// Variáveis globais de alerta/token REMOVIDAS (V7.16)
 ESP8266WebServer server(80);
 
-// NTP Client Setup
+// NTP Client Setup (Timezone do Brasil: -3 horas)
 const long utcOffsetInSeconds = -10800;
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds); 
@@ -32,7 +38,6 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 void send_time_interval(int value);
 void send_feed_duration(int value);
 void send_feed_now();
-
 void handleRoot();
 void handleFeedNow();
 void handleFeedTime();
@@ -40,7 +45,9 @@ void handleFeedQuantity();
 void handleNotFound();
 void serveIndexHtml(String token, String alert, int fTime, int fQty);
 void updateTime();
-void send_feedback_and_refresh(String alert_message, String token_value, int fTime, int fQty); // NOVO PROTÓTIPO
+void send_feedback_and_refresh(String alert_message, String token_value, int fTime, int fQty);
+String getNextFeedTimeDisplay(unsigned long lastFeed, int intervalHours);
+bool isTokenValid(String token); // CLEAN V8.0: Nova função helper
 
 // ----------------------------------------------------------------------
 // FUNÇÕES DE TEMPO E COMUNICAÇÃO SERIAL
@@ -101,6 +108,7 @@ void setup() {
     server.on("/feedTime", handleFeedTime);        
     server.on("/feedQuantity", handleFeedQuantity); 
     
+    // Previne race condition
     server.on("/favicon.ico", []() {
         server.send(204); 
     });
@@ -111,12 +119,13 @@ void setup() {
     
     lastFeedTime = millis();
     
+    // Sincroniza configurações iniciais com o controlador do motor
     send_time_interval(FEED_INTERVAL_HOURS);
     send_feed_duration(FEED_DURATION_MS);
 }
 
 // ----------------------------------------------------------------------
-// FUNÇÃO PRINCIPAL: LOOP
+// FUNÇÃO PRINCIPAL: LOOP (CLEAN V8.0 - Usa constantes de tempo)
 // ----------------------------------------------------------------------
 
 void loop() {
@@ -130,24 +139,18 @@ void loop() {
         WiFi.reconnect();
     }
     
-    if (millis() - lastFeedTime >= (unsigned long)FEED_INTERVAL_HOURS * 3600000UL) {
+    // Lógica de Alimentação Automática (Checagem de tempo e horário)
+    // CLEAN V8.0: Usa a constante ONE_HOUR_MS
+    if (millis() - lastFeedTime >= (unsigned long)FEED_INTERVAL_HOURS * ONE_HOUR_MS) {
         
-        // 1. Obtém a hora atual (somente a hora em formato 24h)
         int currentHour = timeClient.getHours();
         
-        // 2. Verifica se a hora está no intervalo [7, 20)
-        // O intervalo é de 07:00 (inclusivo) até 19:59:59 (exclusivo de 20:00)
-        if (currentHour >= 7 && currentHour < 20) {
+        // CLEAN V8.0: Usa as constantes START_HOUR e END_HOUR
+        if (currentHour >= START_HOUR && currentHour < END_HOUR) {
             
-            // 3. Dispara a alimentação (Comentado pq está sendo gerenciada pelo MEGA)
-            //send_feed_now(); 
-            
-            // 4. Reinicia a contagem
+            send_feed_now(); 
             lastFeedTime = millis();
         }
-        // Se o tempo passou, mas está fora do horário (20h às 6h), o 'lastFeedTime' 
-        // NÃO é atualizado. O sistema espera até que o 'currentHour' seja 7h novamente
-        // para disparar a alimentação e reiniciar o ciclo.
     }
 }
 
@@ -155,37 +158,71 @@ void loop() {
 // FUNÇÕES DE SERVIDOR E ROTEAMENTO
 // ----------------------------------------------------------------------
 
-String getNextFeedTimeDisplay(unsigned long lastFeed, int intervalHours) {
-    // ... (Mantém a lógica de cálculo de tempo) ...
-    unsigned long nextFeedMillis = lastFeed + (unsigned long)intervalHours * 3600000UL;
-    unsigned long diff = nextFeedMillis - millis();
-
-    if (diff > 0) {
-        long seconds = diff / 1000;
-        long minutes = seconds / 60;
-        long hours = minutes / 60;
-        
-        minutes %= 60; 
-
-        String result = "";
-        
-        if (hours > 0) {
-            result += String(hours) + "h ";
-        }
-        
-        result += String(minutes) + "m";
-        
-        return "Em " + result;
-    } else {
-        return "Aguarde, calculando...";
-    }
+// CLEAN V8.0: Nova função helper para validação de token (Evita repetição)
+bool isTokenValid(String token) {
+    token.toUpperCase(); // Converte a cópia local da string
+    return (token == SECRET_TOKEN);
 }
 
-// NOVO: Função para exibir a mensagem temporariamente e redirecionar via Meta-Refresh
+// FUNÇÃO CRUCIAL (CLEAN V8.0 - Usa constantes de tempo)
+String getNextFeedTimeDisplay(unsigned long lastFeed, int intervalHours) {
+    unsigned long nextFeedMillis = lastFeed + (unsigned long)intervalHours * ONE_HOUR_MS;
+    unsigned long now = millis();
+    
+    unsigned long diff;
+    
+    // --- Lógica de Bloqueio Noturno (CLEAN V8.0) ---
+    if (nextFeedMillis <= now) {
+        int currentHour = timeClient.getHours();
+        
+        // Se o tempo expirou E estamos na janela de bloqueio (CLEAN V8.0)
+        if (currentHour >= END_HOUR || currentHour < START_HOUR) {
+            
+            // Calcula o tempo restante até START_HOUR
+            long targetSeconds = START_HOUR * 3600; 
+            long currentSeconds = timeClient.getHours() * 3600 + timeClient.getMinutes() * 60 + timeClient.getSeconds();
+            long secondsInDay = 24 * 3600;
+            long secondsUntilNextFeed = 0;
+            
+            if (currentSeconds < targetSeconds) {
+                secondsUntilNextFeed = targetSeconds - currentSeconds;
+            } else {
+                secondsUntilNextFeed = (secondsInDay - currentSeconds) + targetSeconds;
+            }
+
+            long h = secondsUntilNextFeed / 3600;
+            long m = (secondsUntilNextFeed % 3600) / 60;
+
+            String result = "";
+            if (h > 0) result += String(h) + "h ";
+            result += String(m) + "m";
+            return "Em " + result; 
+        }
+    }
+    // --- Fim da Lógica de Bloqueio Noturno ---
+    
+    // --- Countdown Normal ---
+    if (nextFeedMillis <= now) {
+        diff = 0; 
+    } else {
+        diff = nextFeedMillis - now;
+    }
+
+    long seconds = diff / ONE_SECOND_MS;
+    long minutes = seconds / 60;
+    long hours = minutes / 60;
+    minutes %= 60; 
+
+    String result = "";
+    if (hours > 0) result += String(hours) + "h ";
+    result += String(minutes) + "m";
+    return "Em " + result;
+}
+
+// Função de Feedback (Meta-Refresh)
 void send_feedback_and_refresh(String alert_message, String token_value, int fTime, int fQty) {
     String html = "<!DOCTYPE html><html><head>";
-    // ALTERADO V7.17: O Meta-Refresh agora recarrega para a rota raiz após 5 segundos
-    html += "<meta http-equiv=\"refresh\" content=\"5; url=/\">"; 
+    html += "<meta http-equiv=\"refresh\" content=\"5; url=/\">"; // 5 segundos
     html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
     html += "<title>Processando...</title>";
     html += "<style>";
@@ -195,7 +232,6 @@ void send_feedback_and_refresh(String alert_message, String token_value, int fTi
     html += ".alert-warning{background-color:#f8d7da;color:#721c24;border:1px solid #f5c6cb;}";
     html += "</style></head><body>";
     
-    // Alerta HTML
     String alertClass = (alert_message.startsWith("SUCESSO")) ? "alert-success" : "alert-warning";
     html += "<div class=\"" + alertClass + "\"><p>";
     html += alert_message; 
@@ -207,6 +243,9 @@ void send_feedback_and_refresh(String alert_message, String token_value, int fTi
     server.send(200, "text/html", html);
 }
 
+
+// OTIMIZAÇÃO V8.0: Esta função agora lê linha por linha (Stream)
+// Isso economiza MUITA RAM e previne crashes de "Out of Memory".
 void serveIndexHtml(String token, String alert, int fTime, int fQty) {
     File file = LittleFS.open("/index.html", "r"); 
     if (!file) {
@@ -214,50 +253,47 @@ void serveIndexHtml(String token, String alert, int fTime, int fQty) {
         return;
     }
 
-    String htmlContent = file.readString();
-    file.close(); 
-    
-    // --- Lógica de Alerta (Não usada mais, mas mantida por consistência) ---
-    String alertString = "";
-    // O Alerta aqui sempre será vazio, pois o feedback é feito pela página intermediária
-    
-    // --- Substituições Dinâmicas ---
-    String nextTimeDisplay = getNextFeedTimeDisplay(lastFeedTime, fTime);
-
-    // Token é SEMPRE vazio para a página principal (não mantemos mais o valor incorreto)
-    htmlContent.replace("[LAST_TOKEN_VALUE]", ""); 
-    
-    htmlContent.replace("[FEED_TIME]", String(fTime));
-    htmlContent.replace("[FEED_QUANTITY]", String(fQty));
-    htmlContent.replace("[NEXT_FEED_TIME]", nextTimeDisplay); 
-    
-    // Substitui o placeholder de alerta por uma string vazia
-    htmlContent.replace("", alertString);
-
-    // --- Envio do Conteúdo (Prevenção de Cache) ---
+    // --- Envio Otimizado (Stream) ---
     server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     server.sendHeader("Pragma", "no-cache");
     server.sendHeader("Expires", "-1");
     
-    server.send(200, "text/html", htmlContent); 
+    // Inicia a resposta em modo "chunked" (streaming)
+    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server.send(200, "text/html", ""); // Envia cabeçalhos
+
+    String nextTimeDisplay = getNextFeedTimeDisplay(lastFeedTime, fTime);
+
+    String line;
+    while (file.available()) {
+        line = file.readStringUntil('\n');
+
+        // Substituições em tempo real (muito eficiente em memória)
+        line.replace("[LAST_TOKEN_VALUE]", ""); // Sempre vazio na V8.0
+        line.replace("[FEED_TIME]", String(fTime));
+        line.replace("[FEED_QUANTITY]", String(fQty));
+        line.replace("[NEXT_FEED_TIME]", nextTimeDisplay); 
+        line.replace("", ""); // Alerta é tratado pelo meta-refresh
+
+        server.sendContent(line + "\n"); // Envia a linha processada
+        yield(); // Essencial para estabilidade
+    }
+
+    file.close();
+    server.sendContent(""); // Finaliza a resposta chunked
 }
 
-
-// ROTA: / (Página Inicial) - SIMPLES
+// ROTA: / (Página Inicial)
 void handleRoot() {
-    // Alerta e Token vazios, pois a página intermediária lida com o feedback
     serveIndexHtml("", "", FEED_INTERVAL_HOURS, FEED_DURATION_MS);
 }
 
-// ROTA: /feed/now 
+// ROTA: /feed/now (CLEAN V8.0: Usa isTokenValid())
 void handleFeedNow() {
     String token = server.arg("token");
     String alert = "";
     
-    String upperToken = token;
-    upperToken.toUpperCase();
-
-    if (upperToken == SECRET_TOKEN) {
+    if (isTokenValid(token)) {
         send_feed_now(); 
         lastFeedTime = millis();
         alert = "SUCESSO: Alimento dispensado manualmente! Comando enviado: FEED_NOW"; 
@@ -265,21 +301,17 @@ void handleFeedNow() {
         alert = "ERRO: Token invalido ou nao fornecido.";
     }
 
-    // Feedback imediato e recarga via Meta-Refresh
     send_feedback_and_refresh(alert, token, FEED_INTERVAL_HOURS, FEED_DURATION_MS);
 }
 
-// ROTA: /feedTime 
+// ROTA: /feedTime (CLEAN V8.0: Usa isTokenValid())
 void handleFeedTime() {
     String pathValue = server.arg("value");
     String token = server.arg("token");
     String alert = "";
     int newTime = pathValue.toInt();
     
-    String upperToken = token;
-    upperToken.toUpperCase();
-
-    if (upperToken != SECRET_TOKEN) { 
+    if (!isTokenValid(token)) { 
         alert = "ERRO: Token invalido ou nao fornecido.";
     } else if (newTime >= 1 && newTime <= 24) {
         FEED_INTERVAL_HOURS = newTime;
@@ -289,21 +321,17 @@ void handleFeedTime() {
         alert = "ERRO: Valor de intervalo deve ser entre 1 e 24 horas.";
     }
 
-    // Feedback imediato e recarga via Meta-Refresh
     send_feedback_and_refresh(alert, token, FEED_INTERVAL_HOURS, FEED_DURATION_MS);
 }
 
-// ROTA: /feedQuantity 
+// ROTA: /feedQuantity (CLEAN V8.0: Usa isTokenValid())
 void handleFeedQuantity() {
     String pathValue = server.arg("value");
     String token = server.arg("token");
     String alert = "";
     int newQty = pathValue.toInt();
     
-    String upperToken = token;
-    upperToken.toUpperCase();
-
-    if (upperToken != SECRET_TOKEN) { 
+    if (!isTokenValid(token)) { 
         alert = "ERRO: Token invalido ou nao fornecido.";
     } else if (newQty >= 100 && newQty <= 5000) {
         FEED_DURATION_MS = newQty;
@@ -313,7 +341,6 @@ void handleFeedQuantity() {
         alert = "ERRO: Valor de duracao deve ser entre 100 e 5000 ms.";
     }
     
-    // Feedback imediato e recarga via Meta-Refresh
     send_feedback_and_refresh(alert, token, FEED_INTERVAL_HOURS, FEED_DURATION_MS);
 }
 
