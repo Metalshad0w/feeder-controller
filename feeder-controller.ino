@@ -148,7 +148,7 @@ void loop() {
         // CLEAN V8.0: Usa as constantes START_HOUR e END_HOUR
         if (currentHour >= START_HOUR && currentHour < END_HOUR) {
             
-            send_feed_now(); 
+            //send_feed_now(); 
             lastFeedTime = millis();
         }
     }
