@@ -96,16 +96,26 @@
           setTimeout(showSlides, 4000); 
         }
         
-        // CORREÇÃO V8.2: Carrega o token do cache do navegador (localStorage)
-        window.onload = function() {
-            showSlides();
-            
-            // Tenta carregar o token salvo no cache do navegador
+        // --- INÍCIO DAS MUDANÇAS V8.3 ---
+
+        // Função para preencher o token (chamada assim que o campo estiver pronto)
+        function loadTokenFromLocalStorage() {
             const savedToken = localStorage.getItem("mimiFeederToken");
             if (savedToken) {
                 document.getElementById('tokenDisplay').value = savedToken;
             }
+        }
+
+        // O carrossel (showSlides) ainda precisa do window.onload para garantir que as imagens carreguem antes de começar a transição.
+        // O preenchimento do token será executado assim que o DOM estiver pronto (sem esperar imagens).
+
+        document.addEventListener('DOMContentLoaded', loadTokenFromLocalStorage);
+        
+        window.onload = function() {
+            showSlides(); 
         };
+        
+        // --- FIM DAS MUDANÇAS V8.3 ---
 
     </script>
 </head>
