@@ -5,14 +5,14 @@
     <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
     <title>Alimentador Mimi WiFi</title>
     
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐱</text></svg>">
+    
     <style>
-        /* ... (CSS permanece o mesmo) ... */
+        /* ... (Todo o seu CSS permanece o mesmo) ... */
         body{font-family:'Arial', sans-serif;margin:0;padding:0;background-color:#f8f9fa;color:#495057;}
         h1{color:#007bff;text-align:center;padding:20px 0 10px;}
         .container{max-width:600px;margin:0 auto;padding:20px;}
         .card{background:#ffffff;border-radius:12px;box-shadow:0 4px 8px rgba(0,0,0,0.1);padding:20px;margin-bottom:20px;}
-        
-        /* Estilo do Carrossel/Container Principal */
         .main-card {
             background:#ffffff;
             border-radius:12px;
@@ -23,8 +23,6 @@
         .carrossel{height:280px;overflow:hidden;position:relative;border-radius:12px 12px 0 0;}
         .slide{width:100%;height:100%;background-size:cover;background-repeat:no-repeat;position:absolute;transition:opacity 1s ease-in-out;opacity:0;}
         .slide.active{opacity:1;}
-        
-        /* Estilo da Seção de Token */
         .token-section {
             padding: 15px 20px;
             text-align: center;
@@ -37,8 +35,6 @@
             text-align: center;
             margin-top: 5px;
         }
-        /* Fim Estilo do Carrossel */
-
         .alert-success, .alert-warning{padding:12px;border-radius:6px;margin-bottom:15px;font-weight:bold;}
         .alert-success{background-color:#d4edda;color:#155724;border:1px solid #c3e6cb;}
         .alert-warning{background-color:#f8d7da;color:#721c24;border:1px solid #f5c6cb;}
@@ -53,29 +49,32 @@
         .center-button-wrapper { text-align: center; padding: 10px 0; }
         .full-width-input { width: 100%; margin-bottom: 10px; }
         .input-button-group { display: flex; align-items: center; }
-
     </style>
 
     <script>
+        // CORREÇÃO V8.2: Salva o token no cache do navegador (localStorage)
         function getTokenValue() {
-            return document.getElementById('tokenDisplay').value; 
+            const token = document.getElementById('tokenDisplay').value;
+            // Salva o token no cache do navegador para a próxima visita
+            localStorage.setItem("mimiFeederToken", token);
+            return token; 
         }
 
         function feedNow() {
-            const token = getTokenValue();
+            const token = getTokenValue(); // Salva e obtém o token
             window.location.href = '/feed/now?token=' + token;
         }
         
         function submitQtyForm() {
             var value = document.getElementById('qtyInput').value;
-            var token = getTokenValue(); 
+            var token = getTokenValue(); // Salva e obtém o token
             window.location.href = '/feedQuantity?value=' + value + '&token=' + token;
             return false; 
         }
         
         function submitTimeForm() {
             var value = document.getElementById('timeInput').value;
-            var token = getTokenValue(); 
+            var token = getTokenValue(); // Salva e obtém o token
             window.location.href = '/feedTime?value=' + value + '&token=' + token;
             return false;
         }
@@ -97,8 +96,15 @@
           setTimeout(showSlides, 4000); 
         }
         
+        // CORREÇÃO V8.2: Carrega o token do cache do navegador (localStorage)
         window.onload = function() {
             showSlides();
+            
+            // Tenta carregar o token salvo no cache do navegador
+            const savedToken = localStorage.getItem("mimiFeederToken");
+            if (savedToken) {
+                document.getElementById('tokenDisplay').value = savedToken;
+            }
         };
 
     </script>
@@ -142,11 +148,9 @@
 
     <div class="card">
         <h2>⚙️ Comandos Rápidos</h2>
-        
         <div class="center-button-wrapper">
             <button class="button" onclick="feedNow()">Alimentar Agora</button>
         </div>
-        
         <div class="action-group">
             <p>Definir Duração (ms)</p>
             <form onsubmit="return submitQtyForm();" style="display: flex; align-items: center; justify-content: flex-end;">
@@ -154,7 +158,6 @@
                 <button class="button" type="submit">Definir</button>
             </form>
         </div>
-        
         <div class="action-group">
             <p>Definir Intervalo (H)</p>
             <form onsubmit="return submitTimeForm();" style="display: flex; align-items: center; justify-content: flex-end;">
