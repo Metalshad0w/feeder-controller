@@ -14,19 +14,21 @@ const char* PASSWORD = "rockstaRxD0123";
 
 // --- Configurações de Segurança e Lógica ---
 const String SECRET_TOKEN = "COMIDA"; // Token em maiúsculas
+// V18.0: Variáveis locais são apenas *espelhos* do Mega
 int FEED_INTERVAL_HOURS = 4;
 int FEED_DURATION_MS = 900;
+int megaLastFeedHour = 99; // V18.0: Armazena o LastHour vindo do Mega (99 = indefinido)
 
-// --- CLEAN V8.0: Constantes de Tempo (Sem "Números Mágicos") ---
+// --- Constantes de Tempo ---
 const int START_HOUR = 7; // 7:00 AM
 const int END_HOUR = 20;  // 20:00 PM (horário de parada, exclusivo)
 const unsigned long ONE_SECOND_MS = 1000UL;
 const unsigned long ONE_MINUTE_MS = 60 * ONE_SECOND_MS;
-const unsigned long ONE_HOUR_MS = 60 * ONE_MINUTE_MS; // = 3600000UL
+const unsigned long ONE_HOUR_S = 3600UL;
 
 // --- Variáveis de Estado ---
-unsigned long lastFeedTime = 0;
 int lastMinute = -1;
+String megaSerialBuffer = ""; // V18.0: Buffer para ler dados do Mega
 ESP8266WebServer server(80);
 
 // NTP Client Setup (Timezone do Brasil: -3 horas)
@@ -46,30 +48,28 @@ void handleNotFound();
 void serveIndexHtml(String token, String alert, int fTime, int fQty);
 void updateTime();
 void send_feedback_and_refresh(String alert_message, String token_value, int fTime, int fQty);
-String getNextFeedTimeDisplay(unsigned long lastFeed, int intervalHours);
+String getNextFeedTimeDisplay(int lastHour, int intervalHours); // V18.0: Assinatura alterada
 bool isTokenValid(String token);
+void parseMegaResponse(String msg); // V18.0: Nova função
 
 // ----------------------------------------------------------------------
-// FUNÇÕES DE TEMPO E COMUNICAÇÃO SERIAL (REGRAS DE COMUNICAÇÃO)
+// FUNÇÕES DE TEMPO E COMUNICAÇÃO SERIAL (ESP -> MEGA)
 // ----------------------------------------------------------------------
 
 void updateTime(){
     int minute = timeClient.getFormattedTime().substring(3,5).toInt();
     if(minute != lastMinute){
         timeClient.update();
+        // Envia a hora atual para o Mega (que usa isso para a lógica automática)
         Serial.println(timeClient.getFormattedTime());
         lastMinute = minute;
     }
 }
 void send_time_interval(int value) {
-    // Sincroniza a variável interna do ESP
-    FEED_INTERVAL_HOURS = value;
     String command = "TIME=" + String(value);
     Serial.println(command);
 }
 void send_feed_duration(int value) {
-    // Sincroniza a variável interna do ESP
-    FEED_DURATION_MS = value;
     String command = "FEED_QUANTITY=" + String(value);
     Serial.println(command);
 }
@@ -80,10 +80,37 @@ void send_feed_now() {
 }
 
 // ----------------------------------------------------------------------
-// FUNÇÃO PRINCIPAL: SETUP (V16.0)
+// V18.0: FUNÇÃO DE PARSING (MEGA -> ESP)
+// ----------------------------------------------------------------------
+void parseMegaResponse(String msg) {
+    msg.trim(); // Limpa espaços em branco ou newlines
+    
+    if (msg.indexOf("LAST_HOUR=") >= 0) {
+        megaLastFeedHour = msg.substring(10).toInt();
+    }
+    else if (msg.indexOf("INIT_HOUR=") >= 0) {
+        megaLastFeedHour = msg.substring(10).toInt();
+    }
+    else if (msg.indexOf("INIT_INTERVAL=") >= 0) {
+        FEED_INTERVAL_HOURS = msg.substring(14).toInt();
+    }
+    else if (msg.indexOf("INIT_QUANTITY=") >= 0) {
+        FEED_DURATION_MS = msg.substring(14).toInt();
+    }
+    else if (msg.indexOf("ACK_TIME=") >= 0) {
+        FEED_INTERVAL_HOURS = msg.substring(9).toInt();
+    }
+    else if (msg.indexOf("ACK_QUANTITY=") >= 0) {
+        FEED_DURATION_MS = msg.substring(13).toInt();
+    }
+}
+
+// ----------------------------------------------------------------------
+// FUNÇÃO PRINCIPAL: SETUP (V18.0)
 // ----------------------------------------------------------------------
 
 void setup() {
+    // Serial (Comunicação com o Mega)
     Serial.begin(115200);
 
     // --- Inicialização Robusta do LittleFS ---
@@ -100,12 +127,11 @@ void setup() {
     }
 
     if (!littleFS_ok) {
-        // Falha fatal.
         return;
     }
 
     // --- Conexão WiFi ROBUSTA e SILENCIOSA ---
-    WiFi.mode(WIFI_STA); // Modo Estação (cliente)
+    WiFi.mode(WIFI_STA); 
     WiFi.begin(SSID_NAME, PASSWORD);
 
     int maxTries = 120;
@@ -118,7 +144,6 @@ void setup() {
     if (WiFi.status() == WL_CONNECTED) {
         timeClient.begin();
         timeClient.update();
-        // Sincroniza o tempo com o Mega na inicialização
         updateTime();
     }
 
@@ -127,32 +152,23 @@ void setup() {
     server.on("/feed/now", handleFeedNow);
     server.on("/feedTime", handleFeedTime);
     server.on("/feedQuantity", handleFeedQuantity);
-
-    server.on("/favicon.ico", []() {
-        server.send(204);
-    });
-
+    server.on("/favicon.ico", []() { server.send(204); });
     server.onNotFound(handleNotFound);
 
-    // INICIA O SERVIDOR INCONDICIONALMENTE
     server.begin();
-
-    // Inicia o lastFeedTime para que o countdown inicie no boot
-    lastFeedTime = millis();
-
-    // Sincroniza configurações iniciais com o controlador do motor
-    send_time_interval(FEED_INTERVAL_HOURS);
-    send_feed_duration(FEED_DURATION_MS);
+    
+    // As configurações (Interval e Duration) serão solicitadas ou recebidas
+    // do Mega assim que a comunicação serial for estabelecida.
 }
 
 // ----------------------------------------------------------------------
-// FUNÇÃO PRINCIPAL: LOOP (V16.0 - SEM 'send_feed_now()' AUTOMÁTICO)
+// FUNÇÃO PRINCIPAL: LOOP (V18.0 - Ouve o Mega)
 // ----------------------------------------------------------------------
 
 void loop() {
     server.handleClient();
 
-    // 1. Manutenção da Conexão WiFi (Assíncrona e Não-Bloqueante)
+    // 1. Manutenção da Conexão WiFi (Assíncrona)
     if (WiFi.status() != WL_CONNECTED) {
         static unsigned long lastReconnectAttempt = 0;
         if (millis() - lastReconnectAttempt > 10000) { 
@@ -160,17 +176,17 @@ void loop() {
             lastReconnectAttempt = millis();
         }
     } else {
-        // 2. Sincronização de Tempo (NTP)
+        // 2. Sincronização de Tempo (NTP -> Mega)
         updateTime(); 
-        
-        // 3. Lógica de Alimentação Automática: Apenas atualização do lastFeedTime para o countdown da web
-        if (millis() - lastFeedTime >= (unsigned long)FEED_INTERVAL_HOURS * ONE_HOUR_MS) {
-            
-            // O Mega gerencia se deve alimentar ou não (janela de tempo e disparo).
-            // O ESP apenas atualiza seu contador para que o website mostre o próximo ciclo correto.
-            lastFeedTime = millis(); 
-            
-            // REMOVIDO: send_feed_now();
+    }
+
+    // 3. V18.0: Ouvir respostas do Mega (Mega -> ESP)
+    while (Serial.available()) {
+        char c = Serial.read();
+        megaSerialBuffer += c;
+        if (c == '\n') {
+            parseMegaResponse(megaSerialBuffer);
+            megaSerialBuffer = "";
         }
     }
 }
@@ -179,71 +195,66 @@ void loop() {
 // FUNÇÕES DE SERVIDOR E ROTEAMENTO
 // ----------------------------------------------------------------------
 
-// CLEAN V8.0: Nova função helper para validação de token (Evita repetição)
+// Helper para validação de token
 bool isTokenValid(String token) {
-    token.toUpperCase(); // Converte a cópia local da string
+    token.toUpperCase(); 
     return (token == SECRET_TOKEN);
 }
 
-// FUNÇÃO CRUCIAL (V15.0 - LÓGICA DE EXIBIÇÃO CORRIGIDA)
-String getNextFeedTimeDisplay(unsigned long lastFeedTimeMillis, int intervalHours) {
-    timeClient.update();
+// FUNÇÃO CRUCIAL (V18.0 - REFATORADA PARA USAR DADOS DO MEGA)
+String getNextFeedTimeDisplay(int lastHour, int intervalHours) {
     
-    // 1. Calcula o Epoch Time do Próximo Feed Esperado
-    unsigned long nextFeedMillis = lastFeedTimeMillis + (unsigned long)intervalHours * ONE_HOUR_MS;
-    unsigned long nowMillis = millis();
-    
-    // Se o feed já passou:
-    if (nextFeedMillis <= nowMillis) {
-        
-        int currentHour = timeClient.getHours();
-        
-        // Se já passou e estamos DENTRO do horário válido (Dia)
-        if (currentHour >= START_HOUR && currentHour < END_HOUR) {
-            return "Em 0m"; // Deveria alimentar AGORA (mas foi pulado ou está atrasado)
-        } 
-        
-        // Se já passou e estamos FORA do horário válido (Noite)
-        // O feed será reagendado para o START_HOUR mais próximo (7:00 AM).
-        
-        long nextValidFeedTimeSeconds = 0;
-        
-        // Calcular os segundos do dia atual até o alvo (7:00 AM)
-        long currentSecondsOfDay = timeClient.getHours() * 3600 + timeClient.getMinutes() * 60 + timeClient.getSeconds();
-        long targetSecondsOfDay = START_HOUR * 3600;
-        
-        // Se o horário atual (ex: 21:00) for DEPOIS do START_HOUR (7:00 AM), o alvo é amanhã.
-        // O bloqueio é de END_HOUR até START_HOUR do dia seguinte.
-        if (currentHour >= END_HOUR) { 
-            // Tempo restante até meia-noite + Tempo da meia-noite até START_HOUR (7:00 AM)
-            long secondsUntilMidnight = 24 * 3600 - currentSecondsOfDay;
-            nextValidFeedTimeSeconds = secondsUntilMidnight + targetSecondsOfDay;
-        } else { // Se o horário atual (ex: 3:00 AM) for ANTES do START_HOUR
-            nextValidFeedTimeSeconds = targetSecondsOfDay - currentSecondsOfDay;
-        }
-
-        // Converter segundos em Horas e Minutos
-        long h = nextValidFeedTimeSeconds / 3600;
-        long m = (nextValidFeedTimeSeconds % 3600) / 60;
-
-        String result = "";
-        if (h > 0) result += String(h) + "h ";
-        result += String(m) + "m";
-        return "Em " + result; 
+    // Se o ESP ainda não recebeu os dados do Mega
+    if (lastHour >= 99) {
+        return "Sincronizando com Mega...";
     }
     
-    // 2. Countdown Normal
-    unsigned long timeRemainingMs = nextFeedMillis - nowMillis;
-    long seconds = timeRemainingMs / ONE_SECOND_MS;
-    long minutes = seconds / 60;
-    long hours = minutes / 60;
-    minutes %= 60; 
+    timeClient.update();
+    int currentHour = timeClient.getHours();
+    int currentMinute = timeClient.getMinutes();
+    
+    // 1. Define o próximo horário de alimentação teórico
+    int nextFeedHour = lastHour + intervalHours;
+    
+    // 2. Verifica se o próximo horário ultrapassa 24h (ex: 22 + 4 = 26)
+    if (nextFeedHour >= 24) {
+        nextFeedHour -= 24; // Ajusta para o dia seguinte (ex: 2h da manhã)
+    }
+
+    // 3. Verifica a Janela de Bloqueio Noturno (START_HOUR às END_HOUR)
+    
+    // Se o próximo feed (teórico) cair na janela noturna...
+    if (nextFeedHour >= END_HOUR || nextFeedHour < START_HOUR) {
+        // O feed é reagendado para o START_HOUR (7:00 AM)
+        nextFeedHour = START_HOUR;
+    }
+    
+    // 4. Calcula o tempo restante até o nextFeedHour
+    
+    long h_restantes = 0;
+    long m_restantes = 0;
+
+    if (currentHour <= nextFeedHour) {
+        // Caso simples: Próximo feed hoje
+        h_restantes = nextFeedHour - currentHour;
+        m_restantes = 60 - currentMinute; // Ajuste fino dos minutos
+        if (m_restantes > 0 && h_restantes > 0) h_restantes--; // Ajuste da hora
+    } else {
+        // Caso complexo: Próximo feed amanhã
+        h_restantes = (24 - currentHour) + nextFeedHour;
+        m_restantes = 60 - currentMinute;
+        if (m_restantes > 0 && h_restantes > 0) h_restantes--; // Ajuste da hora
+    }
+    
+    // Ajuste final de minutos
+    if (m_restantes == 60) m_restantes = 0;
 
     String result = "";
-    if (hours > 0) result += String(hours) + "h ";
-    result += String(minutes) + "m";
+    if (h_restantes > 0) result += String(h_restantes) + "h ";
+    result += String(m_restantes) + "m";
     return "Em " + result;
 }
+
 
 // Função de Feedback (Meta-Refresh)
 void send_feedback_and_refresh(String alert_message, String token_value, int fTime, int fQty) {
@@ -282,48 +293,48 @@ void serveIndexHtml(String token, String alert, int fTime, int fQty) {
     server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     server.sendHeader("Pragma", "no-cache");
     server.sendHeader("Expires", "-1");
-
-    // Inicia a resposta em modo "chunked" (streaming)
-    server.sendHeader("Cache-Control", "public, max-age=60"); // Cache de 60 segundos para o HTML
+    server.sendHeader("Cache-Control", "public, max-age=60");
     server.sendHeader("Connection", "keep-alive");
     server.setContentLength(CONTENT_LENGTH_UNKNOWN);
     server.send(200, "text/html", ""); // Envia cabeçalhos
 
-    String nextTimeDisplay = getNextFeedTimeDisplay(lastFeedTime, fTime);
+    // V18.0: Usa os dados do Mega para o countdown
+    String nextTimeDisplay = getNextFeedTimeDisplay(megaLastFeedHour, FEED_INTERVAL_HOURS);
 
     String line;
     while (file.available()) {
         line = file.readStringUntil('\n');
 
-        // Substituições em tempo real (muito eficiente em memória)
-        line.replace("[LAST_TOKEN_VALUE]", ""); // Sempre vazio na V8.0
+        // Substituições em tempo real
+        line.replace("[LAST_TOKEN_VALUE]", ""); 
         line.replace("[FEED_TIME]", String(fTime));
         line.replace("[FEED_QUANTITY]", String(fQty));
         line.replace("[NEXT_FEED_TIME]", nextTimeDisplay);
-        line.replace("", ""); // Alerta é tratado pelo meta-refresh
+        line.replace("", ""); 
 
-        server.sendContent(line + "\n"); // Envia a linha processada
-        yield(); // Essencial para estabilidade
+        server.sendContent(line + "\n"); 
+        yield(); 
     }
 
     file.close();
-    server.sendContent(""); // Finaliza a resposta chunked
+    server.sendContent(""); 
 }
 
 // ROTA: / (Página Inicial)
 void handleRoot() {
+    // V18.0: Usa as variáveis espelhadas do Mega
     serveIndexHtml("", "", FEED_INTERVAL_HOURS, FEED_DURATION_MS);
 }
 
-// ROTA: /feed/now (CLEAN V8.0: Usa isTokenValid())
+// ROTA: /feed/now 
 void handleFeedNow() {
     String token = server.arg("token");
     String alert = "";
 
     if (isTokenValid(token)) {
         send_feed_now();
-        // Ação: Atualiza o tempo para reiniciar o countdown no website (Requisito 1)
-        lastFeedTime = millis(); 
+        // V18.0: Não atualiza mais o lastFeedTime localmente.
+        // O ESP agora espera o Mega enviar "LAST_HOUR=..." de volta.
         alert = "SUCESSO: Alimento dispensado manualmente! Comando enviado: FEED_NOW";
     } else {
         alert = "ERRO: Token invalido ou nao fornecido.";
@@ -332,7 +343,7 @@ void handleFeedNow() {
     send_feedback_and_refresh(alert, token, FEED_INTERVAL_HOURS, FEED_DURATION_MS);
 }
 
-// ROTA: /feedTime (CLEAN V8.0: Usa isTokenValid())
+// ROTA: /feedTime 
 void handleFeedTime() {
     String pathValue = server.arg("value");
     String token = server.arg("token");
@@ -342,7 +353,6 @@ void handleFeedTime() {
     if (!isTokenValid(token)) {
         alert = "ERRO: Token invalido ou nao fornecido.";
     } else if (newTime >= 1 && newTime <= 24) {
-        // A atribuição foi movida para send_time_interval
         send_time_interval(newTime);
         alert = "SUCESSO: Intervalo de alimentacao definido para " + String(newTime) + " horas.";
     } else {
@@ -352,7 +362,7 @@ void handleFeedTime() {
     send_feedback_and_refresh(alert, token, FEED_INTERVAL_HOURS, FEED_DURATION_MS);
 }
 
-// ROTA: /feedQuantity (CLEAN V8.0: Usa isTokenValid())
+// ROTA: /feedQuantity
 void handleFeedQuantity() {
     String pathValue = server.arg("value");
     String token = server.arg("token");
@@ -362,7 +372,6 @@ void handleFeedQuantity() {
     if (!isTokenValid(token)) {
         alert = "ERRO: Token invalido ou nao fornecido.";
     } else if (newQty >= 100 && newQty <= 5000) {
-        // A atribuição foi movida para send_feed_duration
         send_feed_duration(newQty);
         alert = "SUCESSO: Duracao da alimentacao definida para " + String(newQty) + " ms.";
     } else {
